@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using QatarLearningBackend.Data;
+using QatarLearningBackend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -50,6 +51,9 @@ builder.Services.AddSwaggerGen(options =>
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+
+// Notifications (created on booking events, saved together with the booking change)
+builder.Services.AddScoped<INotificationService, NotificationService>();
 
 // Configure JWT Authentication
 // NOTE: this fallback key must match the one used when generating tokens.

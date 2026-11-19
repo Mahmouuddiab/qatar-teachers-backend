@@ -12,6 +12,7 @@ namespace QatarLearningBackend.Data
         public DbSet<Booking> Bookings => Set<Booking>();
         public DbSet<TeacherAvailability> TeacherAvailabilities => Set<TeacherAvailability>();
         public DbSet<Course> Courses => Set<Course>();
+        public DbSet<Notification> Notifications => Set<Notification>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -43,6 +44,17 @@ namespace QatarLearningBackend.Data
             // Bookings: link back to the course they were made for
             modelBuilder.Entity<Booking>()
                 .HasIndex(b => b.CourseId);
+
+            // Notifications: fast "my notifications / unread count" lookups
+            modelBuilder.Entity<Notification>()
+                .HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
+
+            // Deleting a booking keeps the notification, it just loses the link
+            modelBuilder.Entity<Notification>()
+                .HasOne(n => n.Booking)
+                .WithMany()
+                .HasForeignKey(n => n.BookingId)
+                .OnDelete(DeleteBehavior.SetNull);
         }
     }
 }

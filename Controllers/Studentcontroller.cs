@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using QatarLearningBackend.Data;
 using QatarLearningBackend.DTOs;
 using QatarLearningBackend.Models;
+using QatarLearningBackend.Services;
 
 namespace QatarLearningBackend.Controllers
 {
@@ -13,10 +14,12 @@ namespace QatarLearningBackend.Controllers
     public class StudentController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly INotificationService _notifications;
 
-        public StudentController(AppDbContext context)
+        public StudentController(AppDbContext context, INotificationService notifications)
         {
             _context = context;
+            _notifications = notifications;
         }
 
         // ---------------------------------------------------------------------
@@ -191,6 +194,7 @@ namespace QatarLearningBackend.Controllers
 
         // =====================================================================
         // BOOKINGS (student only)
+        // Notifications live in StudentNotificationsController (/api/Student/notifications).
         // =====================================================================
 
         /// <summary>Book a course at a given date/time. The teacher must then accept it.</summary>
@@ -281,6 +285,10 @@ namespace QatarLearningBackend.Controllers
             };
 
             _context.Bookings.Add(booking);
+
+            // Notify the teacher about the new request (saved together with the booking below)
+            await _notifications.BookingRequestedAsync(booking);
+
             await _context.SaveChangesAsync();
 
             var teacherName = await _context.Users
@@ -366,6 +374,9 @@ namespace QatarLearningBackend.Controllers
                 return BadRequest(new { message = "This session has already started." });
 
             booking.Status = BookingStatus.Cancelled;
+
+            // Notify the teacher (saved together with the status change below)
+            await _notifications.BookingCancelledByStudentAsync(booking);
 
             try
             {

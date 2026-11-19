@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using QatarLearningBackend.Data;
 using QatarLearningBackend.DTOs;
 using QatarLearningBackend.Models;
+using QatarLearningBackend.Services;
 
 namespace QatarLearningBackend.Controllers
 {
@@ -15,6 +16,7 @@ namespace QatarLearningBackend.Controllers
     ///                            PUT  bookings/{id}/status, bookings/{id}/complete
     ///   المواعيد  (Appointments) GET/POST/DELETE availability
     ///   حسابي     (Account)      GET/PUT profile, and courses (CRUD)
+    /// Notifications live in TeacherNotificationsController (/api/Teacher/notifications).
     /// </summary>
     [Route("api/[controller]")]   // -> /api/Teacher
     [ApiController]
@@ -22,10 +24,12 @@ namespace QatarLearningBackend.Controllers
     public class TeacherController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly INotificationService _notifications;
 
-        public TeacherController(AppDbContext context)
+        public TeacherController(AppDbContext context, INotificationService notifications)
         {
             _context = context;
+            _notifications = notifications;
         }
 
         // ---------------------------------------------------------------------
@@ -658,6 +662,9 @@ namespace QatarLearningBackend.Controllers
 
             booking.Status = dto.Accept ? BookingStatus.Confirmed : BookingStatus.Cancelled;
 
+            // Notify the student (saved together with the status change below)
+            await _notifications.BookingDecisionAsync(booking, dto.Accept);
+
             try
             {
                 await _context.SaveChangesAsync();
@@ -686,6 +693,9 @@ namespace QatarLearningBackend.Controllers
                 return BadRequest(new { message = "Session has not finished yet." });
 
             booking.Status = BookingStatus.Completed;
+
+            // Notify the student (saved together with the status change below)
+            await _notifications.SessionCompletedAsync(booking);
 
             try
             {
