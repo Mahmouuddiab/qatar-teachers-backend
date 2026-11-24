@@ -25,11 +25,49 @@ namespace QatarLearningBackend.Controllers
     {
         private readonly AppDbContext _context;
         private readonly INotificationService _notifications;
+        private readonly IFcmPushService _fcmPushService;
+        private readonly ILogger<TeacherController> _logger;
 
-        public TeacherController(AppDbContext context, INotificationService notifications)
+        public TeacherController(
+            AppDbContext context,
+            INotificationService notifications,
+            IFcmPushService fcmPushService,
+            ILogger<TeacherController> logger)
         {
             _context = context;
             _notifications = notifications;
+            _fcmPushService = fcmPushService;
+            _logger = logger;
+        }
+
+        private async Task SendPushSafelyAsync(
+            int userId,
+            Notification notification,
+            int bookingId)
+        {
+            try
+            {
+                await _fcmPushService.SendToUserAsync(
+                    userId: userId,
+                    title: notification.Title,
+                    body: notification.Body,
+                    type: notification.Type,
+                    bookingId: bookingId,
+                    notificationId: notification.Id);
+            }
+            catch (Exception exception)
+            {
+                // The database update already succeeded. Do not fail the API response
+                // only because push delivery failed.
+                _logger.LogError(
+                    exception,
+                    "Notification was saved, but FCM sending failed. " +
+                    "UserId: {UserId}, BookingId: {BookingId}, " +
+                    "NotificationId: {NotificationId}",
+                    userId,
+                    bookingId,
+                    notification.Id);
+            }
         }
 
         // ---------------------------------------------------------------------
@@ -662,17 +700,25 @@ namespace QatarLearningBackend.Controllers
 
             booking.Status = dto.Accept ? BookingStatus.Confirmed : BookingStatus.Cancelled;
 
-            // Notify the student (saved together with the status change below)
-            await _notifications.BookingDecisionAsync(booking, dto.Accept);
+            // Add the in-app notification to the same DbContext.
+            var notification =
+                await _notifications.BookingDecisionAsync(booking, dto.Accept);
 
             try
             {
+                // Save the status change and notification first so their IDs exist.
                 await _context.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
                 return Conflict(new { message = "This booking was modified by someone else. Please refresh and try again." });
             }
+
+            // Notify the student after the database save.
+            await SendPushSafelyAsync(
+                userId: booking.StudentId,
+                notification: notification,
+                bookingId: booking.Id);
 
             return Ok(new { message = $"Booking {booking.Status.ToLower()}.", status = booking.Status });
         }
@@ -694,17 +740,25 @@ namespace QatarLearningBackend.Controllers
 
             booking.Status = BookingStatus.Completed;
 
-            // Notify the student (saved together with the status change below)
-            await _notifications.SessionCompletedAsync(booking);
+            // Add the in-app notification to the same DbContext.
+            var notification =
+                await _notifications.SessionCompletedAsync(booking);
 
             try
             {
+                // Save the status change and notification first so their IDs exist.
                 await _context.SaveChangesAsync();
             }
             catch (DbUpdateConcurrencyException)
             {
                 return Conflict(new { message = "This booking was modified by someone else. Please refresh and try again." });
             }
+
+            // Notify the student after the database save.
+            await SendPushSafelyAsync(
+                userId: booking.StudentId,
+                notification: notification,
+                bookingId: booking.Id);
 
             return Ok(new { message = "Session marked as completed.", status = booking.Status });
         }

@@ -6,6 +6,15 @@
 # dotenv files
 .env
 
+# Firebase private keys
+firebase-adminsdk-*.json
+qatar-firebase-admin.json
+service-account-*.json
+
+# Local secrets
+.env
+.env.*
+
 # User-specific files
 *.rsuser
 *.suo
@@ -481,3 +490,5 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 appsettings.Development.json
+appsettings.json
+appsettings.Production.json

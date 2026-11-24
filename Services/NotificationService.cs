@@ -3,112 +3,132 @@ using Microsoft.EntityFrameworkCore;
 using QatarLearningBackend.Data;
 using QatarLearningBackend.Models;
 
-namespace QatarLearningBackend.Services
+namespace QatarLearningBackend.Services;
+
+public sealed class NotificationService : INotificationService
 {
-    /// <summary>
-    /// Creates notifications for booking events.
-    /// NOTE: these methods only ADD the notification to the DbContext, they do not save.
-    /// The caller's own SaveChangesAsync() saves the booking change and the notification
-    /// together in one transaction, so you never get one without the other.
-    /// </summary>
-    public interface INotificationService
+    private readonly AppDbContext _context;
+
+    public NotificationService(AppDbContext context)
     {
-        /// <summary>Student booked a course -> notify the teacher.</summary>
-        Task BookingRequestedAsync(Booking booking);
-
-        /// <summary>Teacher accepted / rejected a request -> notify the student.</summary>
-        Task BookingDecisionAsync(Booking booking, bool accepted);
-
-        /// <summary>Student cancelled -> notify the teacher.</summary>
-        Task BookingCancelledByStudentAsync(Booking booking);
-
-        /// <summary>Teacher marked the session completed -> notify the student.</summary>
-        Task SessionCompletedAsync(Booking booking);
+        _context = context;
     }
 
-    public class NotificationService : INotificationService
+    public async Task<Notification> BookingRequestedAsync(Booking booking)
     {
-        private readonly AppDbContext _context;
+        var studentName = await GetNameAsync(booking.StudentId);
 
-        public NotificationService(AppDbContext context)
+        var notification = new Notification
         {
-            _context = context;
-        }
+            UserId = booking.TeacherId,
+            Type = NotificationTypes.BookingRequested,
+            Title = "طلب حجز جديد",
+            Body =
+                $"{studentName} طلب حجز حصة {booking.Subject} بتاريخ {Format(booking.SessionDate)}",
+            Booking = booking,
+            IsRead = false,
+            CreatedAt = QatarNow
+        };
 
-        public async Task BookingRequestedAsync(Booking b)
-        {
-            var student = await GetNameAsync(b.StudentId);
+        _context.Notifications.Add(notification);
 
-            Add(b.TeacherId, NotificationTypes.BookingRequested,
-                "طلب حجز جديد",
-                $"{student} طلب حجز حصة {b.Subject} بتاريخ {Format(b.SessionDate)}",
-                b);
-        }
+        return notification;
+    }
 
-        public async Task BookingDecisionAsync(Booking b, bool accepted)
-        {
-            var teacher = await GetNameAsync(b.TeacherId);
+    public async Task<Notification> BookingDecisionAsync(
+        Booking booking,
+        bool accepted)
+    {
+        var teacherName = await GetNameAsync(booking.TeacherId);
 
-            if (accepted)
+        var notification = accepted
+            ? new Notification
             {
-                Add(b.StudentId, NotificationTypes.BookingConfirmed,
-                    "تم تأكيد حجزك",
-                    $"أكد الأستاذ {teacher} حجزك لحصة {b.Subject} بتاريخ {Format(b.SessionDate)}",
-                    b);
-            }
-            else
-            {
-                Add(b.StudentId, NotificationTypes.BookingRejected,
-                    "تم رفض طلب الحجز",
-                    $"اعتذر الأستاذ {teacher} عن حصة {b.Subject} بتاريخ {Format(b.SessionDate)}",
-                    b);
-            }
-        }
-
-        public async Task BookingCancelledByStudentAsync(Booking b)
-        {
-            var student = await GetNameAsync(b.StudentId);
-
-            Add(b.TeacherId, NotificationTypes.BookingCancelled,
-                "تم إلغاء حجز",
-                $"ألغى الطالب {student} حجز حصة {b.Subject} بتاريخ {Format(b.SessionDate)}",
-                b);
-        }
-
-        public async Task SessionCompletedAsync(Booking b)
-        {
-            var teacher = await GetNameAsync(b.TeacherId);
-
-            Add(b.StudentId, NotificationTypes.SessionCompleted,
-                "اكتملت الحصة",
-                $"تم تسجيل حصة {b.Subject} مع الأستاذ {teacher} كمكتملة",
-                b);
-        }
-
-        // ------------------------------------------------------------------
-
-        private void Add(int userId, string type, string title, string body, Booking booking)
-        {
-            _context.Notifications.Add(new Notification
-            {
-                UserId = userId,
-                Type = type,
-                Title = title,
-                Body = body,
-                // Navigation (not BookingId) so it also works for a booking that isn't saved yet.
+                UserId = booking.StudentId,
+                Type = NotificationTypes.BookingConfirmed,
+                Title = "تم تأكيد حجزك",
+                Body =
+                    $"أكد الأستاذ {teacherName} حجزك لحصة {booking.Subject} بتاريخ {Format(booking.SessionDate)}",
                 Booking = booking,
                 IsRead = false,
-                CreatedAt = DateTime.UtcNow.AddHours(3) // Qatar local time
-            });
-        }
+                CreatedAt = QatarNow
+            }
+            : new Notification
+            {
+                UserId = booking.StudentId,
+                Type = NotificationTypes.BookingRejected,
+                Title = "تم رفض طلب الحجز",
+                Body =
+                    $"اعتذر الأستاذ {teacherName} عن حصة {booking.Subject} بتاريخ {Format(booking.SessionDate)}",
+                Booking = booking,
+                IsRead = false,
+                CreatedAt = QatarNow
+            };
 
-        private async Task<string> GetNameAsync(int userId) =>
-            await _context.Users.AsNoTracking()
-                .Where(u => u.Id == userId)
-                .Select(u => u.FullName)
-                .FirstOrDefaultAsync() ?? string.Empty;
+        _context.Notifications.Add(notification);
 
-        private static string Format(DateTime date) =>
-            date.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+        return notification;
+    }
+
+    public async Task<Notification> BookingCancelledByStudentAsync(
+        Booking booking)
+    {
+        var studentName = await GetNameAsync(booking.StudentId);
+
+        var notification = new Notification
+        {
+            UserId = booking.TeacherId,
+            Type = NotificationTypes.BookingCancelled,
+            Title = "تم إلغاء حجز",
+            Body =
+                $"ألغى الطالب {studentName} حجز حصة {booking.Subject} بتاريخ {Format(booking.SessionDate)}",
+            Booking = booking,
+            IsRead = false,
+            CreatedAt = QatarNow
+        };
+
+        _context.Notifications.Add(notification);
+
+        return notification;
+    }
+
+    public async Task<Notification> SessionCompletedAsync(Booking booking)
+    {
+        var teacherName = await GetNameAsync(booking.TeacherId);
+
+        var notification = new Notification
+        {
+            UserId = booking.StudentId,
+            Type = NotificationTypes.SessionCompleted,
+            Title = "اكتملت الحصة",
+            Body =
+                $"تم تسجيل حصة {booking.Subject} مع الأستاذ {teacherName} كمكتملة",
+            Booking = booking,
+            IsRead = false,
+            CreatedAt = QatarNow
+        };
+
+        _context.Notifications.Add(notification);
+
+        return notification;
+    }
+
+    private async Task<string> GetNameAsync(int userId)
+    {
+        return await _context.Users
+            .AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => user.FullName)
+            .FirstOrDefaultAsync() ?? string.Empty;
+    }
+
+    private static DateTime QatarNow =>
+        DateTime.UtcNow.AddHours(3);
+
+    private static string Format(DateTime date)
+    {
+        return date.ToString(
+            "yyyy-MM-dd HH:mm",
+            CultureInfo.InvariantCulture);
     }
 }

@@ -1,4 +1,6 @@
 using System.Text;
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -8,11 +10,34 @@ using QatarLearningBackend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// ------------------------------------------------------------
+// Firebase Admin SDK
+// ------------------------------------------------------------
+// Firebase Admin reads the service-account credentials from the
+// GOOGLE_APPLICATION_CREDENTIALS environment variable.
+//
+// Example:
+// GOOGLE_APPLICATION_CREDENTIALS=/secure/firebase/service-account.json
+//
+// Never put the service-account JSON file inside the Flutter app
+// or commit it to Git.
+if (FirebaseApp.DefaultInstance == null)
+{
+    FirebaseApp.Create(new AppOptions
+    {
+        Credential = GoogleCredential.GetApplicationDefault()
+    });
+}
+
+// ------------------------------------------------------------
+// Services
+// ------------------------------------------------------------
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// ------------------------------------------------------------
 // Swagger with JWT "Authorize" button
+// ------------------------------------------------------------
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
@@ -28,7 +53,8 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Paste ONLY the JWT token (Swagger adds the 'Bearer ' prefix)."
+        Description =
+            "Paste ONLY the JWT token. Swagger adds the 'Bearer ' prefix."
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -47,24 +73,55 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// Configure MySQL Connection with Pomelo Entity Framework Core
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+// ------------------------------------------------------------
+// MySQL / Entity Framework Core
+// ------------------------------------------------------------
+var connectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is not configured.");
+}
+
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));
+    options.UseMySql(
+        connectionString,
+        ServerVersion.AutoDetect(connectionString)));
 
-// Notifications (created on booking events, saved together with the booking change)
-builder.Services.AddScoped<INotificationService, NotificationService>();
+// ------------------------------------------------------------
+// Application services
+// ------------------------------------------------------------
 
-// Configure JWT Authentication
-// NOTE: this fallback key must match the one used when generating tokens.
-// Set Jwt:Key in appsettings / environment variables for production.
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "SuperSecretKeyForQatarLearningPlatformWithEnoughLength2026!";
+// Creates database notification records for booking events.
+builder.Services.AddScoped<
+    INotificationService,
+    NotificationService>();
+
+// Sends push notifications through Firebase Cloud Messaging.
+builder.Services.AddScoped<
+    IFcmPushService,
+    FcmPushService>();
+
+// ------------------------------------------------------------
+// JWT Authentication
+// ------------------------------------------------------------
+// Set Jwt:Key in appsettings.json or environment variables.
+// Do not use the fallback key in production.
+var jwtKey =
+    builder.Configuration["Jwt:Key"]
+    ?? "SuperSecretKeyForQatarLearningPlatformWithEnoughLength2026!";
+
 var key = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
 {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultAuthenticateScheme =
+        JwtBearerDefaults.AuthenticationScheme;
+
+    options.DefaultChallengeScheme =
+        JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
@@ -74,31 +131,50 @@ builder.Services.AddAuthentication(options =>
         ValidateAudience = true,
         ValidateLifetime = true,
         ValidateIssuerSigningKey = true,
+
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(key),
+
+        IssuerSigningKey =
+            new SymmetricSecurityKey(key),
+
         ClockSkew = TimeSpan.FromMinutes(1)
     };
 });
 
 builder.Services.AddAuthorization();
 
+// ------------------------------------------------------------
+// CORS
+// ------------------------------------------------------------
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+        policy
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
+// ------------------------------------------------------------
+// Build application
+// ------------------------------------------------------------
 var app = builder.Build();
 
-// Configure the HTTP request pipeline (Enabled globally for all environments)
+// ------------------------------------------------------------
+// HTTP request pipeline
+// ------------------------------------------------------------
 app.UseSwagger();
-app.UseSwaggerUI(c =>
+
+app.UseSwaggerUI(options =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Qatar Learning Platform API V1");
-    c.RoutePrefix = "swagger"; // Makes Swagger available at /swagger
+    options.SwaggerEndpoint(
+        "/swagger/v1/swagger.json",
+        "Qatar Learning Platform API V1");
+
+    options.RoutePrefix = "swagger";
 });
 
 app.UseCors("AllowAll");
@@ -108,12 +184,19 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/", () => "Qatar Teachers & Student Learning Platform API is running successfully!");
+app.MapGet(
+    "/",
+    () =>
+        "Qatar Teachers & Student Learning Platform API is running successfully!");
 
-// Ensure database is created on startup
+// ------------------------------------------------------------
+// Ensure database exists on startup
+// ------------------------------------------------------------
 using (var scope = app.Services.CreateScope())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var dbContext =
+        scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
     dbContext.Database.EnsureCreated();
 }
 
