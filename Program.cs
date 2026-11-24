@@ -13,20 +13,44 @@ var builder = WebApplication.CreateBuilder(args);
 // ------------------------------------------------------------
 // Firebase Admin SDK
 // ------------------------------------------------------------
-// Firebase Admin reads the service-account credentials from the
-// GOOGLE_APPLICATION_CREDENTIALS environment variable.
+// Credential lookup order:
+//   1. Firebase:CredentialsPath (appsettings / environment variable)
+//   2. <app folder>/secrets/qatar-firebase-admin.json
+//   3. GOOGLE_APPLICATION_CREDENTIALS environment variable
+// If none work, the site still starts and push notifications are
+// disabled (a message is written to the console / stdout log).
 //
-// Example:
-// GOOGLE_APPLICATION_CREDENTIALS=/secure/firebase/service-account.json
-//
-// Never put the service-account JSON file inside the Flutter app
-// or commit it to Git.
+// Never commit the service-account JSON to Git.
 if (FirebaseApp.DefaultInstance == null)
 {
-    FirebaseApp.Create(new AppOptions
+    try
     {
-        Credential = GoogleCredential.GetApplicationDefault()
-    });
+        var credPath = builder.Configuration["Firebase:CredentialsPath"];
+
+        if (string.IsNullOrWhiteSpace(credPath))
+        {
+            credPath = Path.Combine(
+                builder.Environment.ContentRootPath,
+                "secrets",
+                "qatar-firebase-admin.json");
+        }
+
+        var credential = File.Exists(credPath)
+            ? GoogleCredential.FromFile(credPath)
+            : GoogleCredential.GetApplicationDefault();
+
+        FirebaseApp.Create(new AppOptions
+        {
+            Credential = credential
+        });
+
+        Console.WriteLine("Firebase initialized.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine(
+            $"Firebase init failed, push notifications disabled: {ex.Message}");
+    }
 }
 
 // ------------------------------------------------------------
@@ -107,11 +131,12 @@ builder.Services.AddScoped<
 // ------------------------------------------------------------
 // JWT Authentication
 // ------------------------------------------------------------
-// Set Jwt:Key in appsettings.json or environment variables.
-// Do not use the fallback key in production.
+// Jwt:Key MUST be set in appsettings.json or environment variables.
+// There is intentionally no fallback key.
 var jwtKey =
     builder.Configuration["Jwt:Key"]
-    ?? "SuperSecretKeyForQatarLearningPlatformWithEnoughLength2026!";
+    ?? throw new InvalidOperationException(
+        "Jwt:Key is not configured.");
 
 var key = Encoding.UTF8.GetBytes(jwtKey);
 
@@ -194,10 +219,18 @@ app.MapGet(
 // ------------------------------------------------------------
 using (var scope = app.Services.CreateScope())
 {
-    var dbContext =
-        scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    try
+    {
+        var dbContext =
+            scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-    dbContext.Database.EnsureCreated();
+        dbContext.Database.EnsureCreated();
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Database startup check failed: {ex.Message}");
+        throw;
+    }
 }
 
 app.Run();

@@ -1,3 +1,4 @@
+using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Microsoft.EntityFrameworkCore;
 using QatarLearningBackend.Data;
@@ -30,6 +31,16 @@ public sealed class FcmPushService : IFcmPushService
         int? bookingId = null,
         int? notificationId = null)
     {
+        // Firebase may not be initialized (missing key on the server).
+        if (FirebaseApp.DefaultInstance == null)
+        {
+            _logger.LogWarning(
+                "Firebase is not initialized; skipping push for user {UserId}.",
+                userId);
+
+            return;
+        }
+
         var deviceTokens = await _context.DeviceTokens
             .Where(device =>
                 device.UserId == userId &&
