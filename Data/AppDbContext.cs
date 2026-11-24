@@ -13,6 +13,7 @@ namespace QatarLearningBackend.Data
         public DbSet<TeacherAvailability> TeacherAvailabilities => Set<TeacherAvailability>();
         public DbSet<Course> Courses => Set<Course>();
         public DbSet<Notification> Notifications => Set<Notification>();
+        public DbSet<DeviceToken> DeviceTokens => Set<DeviceToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -55,6 +56,14 @@ namespace QatarLearningBackend.Data
                 .WithMany()
                 .HasForeignKey(n => n.BookingId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            // Device tokens: a token belongs to exactly one user; fast lookup of a user's devices
+            modelBuilder.Entity<DeviceToken>()
+                .HasIndex(d => d.Token)
+                .IsUnique();
+
+            modelBuilder.Entity<DeviceToken>()
+                .HasIndex(d => d.UserId);
         }
     }
 }
