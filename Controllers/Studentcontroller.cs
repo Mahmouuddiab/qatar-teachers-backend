@@ -594,6 +594,111 @@ namespace QatarLearningBackend.Controllers
         }
 
         /// <summary>
+/// Full details of one of my bookings.
+/// </summary>
+[HttpGet("bookings/{id:int}")]
+[Authorize(Roles = StudentRole)]
+public async Task<IActionResult> GetBookingDetails(int id)
+{
+    var studentId = CurrentUserId;
+
+    if (studentId == 0)
+    {
+        return Unauthorized(new
+        {
+            message = "Invalid token: user id claim is missing."
+        });
+    }
+
+    var booking = await _context.Bookings
+        .AsNoTracking()
+        .FirstOrDefaultAsync(item =>
+            item.Id == id &&
+            item.StudentId == studentId);
+
+    if (booking == null)
+    {
+        return NotFound(new
+        {
+            message = "Booking not found."
+        });
+    }
+
+    var teacherName = await _context.Users
+        .AsNoTracking()
+        .Where(user => user.Id == booking.TeacherId)
+        .Select(user => user.FullName)
+        .FirstOrDefaultAsync();
+
+    var profile = await _context.TeacherProfiles
+        .AsNoTracking()
+        .FirstOrDefaultAsync(item =>
+            item.UserId == booking.TeacherId);
+
+    Course? course = null;
+
+    if (booking.CourseId.HasValue)
+    {
+        course = await _context.Courses
+            .AsNoTracking()
+            .FirstOrDefaultAsync(item =>
+                item.Id == booking.CourseId.Value);
+    }
+
+    var duration = course?.DurationMinutes ?? DefaultSessionMinutes;
+
+    var canCancel =
+        (booking.Status == BookingStatus.Pending ||
+         booking.Status == BookingStatus.Confirmed) &&
+        booking.SessionDate > QatarNow;
+
+    return Ok(new StudentBookingDetailsDto
+    {
+        Id = booking.Id,
+        Status = booking.Status,
+        Mode = booking.SessionMode,
+        Subject = booking.Subject,
+
+        SessionDate = booking.SessionDate,
+        SessionEndDate = booking.SessionDate.AddMinutes(duration),
+        DurationMinutes = duration,
+
+        TotalPriceQAR = booking.TotalPriceQAR,
+        CreatedAt = booking.CreatedAt,
+        CanCancel = canCancel,
+
+        Teacher = new BookingTeacherDto
+        {
+            TeacherId = booking.TeacherId,
+            Name = teacherName,
+            Bio = profile?.Bio,
+            Qualifications = profile?.Qualifications,
+            Subjects = Split(profile?.Subjects),
+            Languages = Split(profile?.Languages),
+            Rating = Math.Round(
+                Convert.ToDouble((object?)profile?.Rating ?? 0.0), 2),
+            YearsOfExperience = Convert.ToInt32(
+                (object?)profile?.YearsOfExperience ?? 0)
+        },
+
+        Course = course == null
+            ? null
+            : new BookingCourseDto
+            {
+                CourseId = course.Id,
+                Title = course.Title,
+                Subject = course.Subject,
+                Description = course.Description,
+                Level = course.Level,
+                PricePerSessionQAR = course.PricePerSessionQAR,
+                DurationMinutes = course.DurationMinutes,
+                SessionMode = course.SessionMode,
+                IsActive = course.IsActive
+            }
+    });
+}
+
+        /// <summary>
         /// Cancel one of my pending/confirmed bookings.
         /// </summary>
         [HttpPut("bookings/{id:int}/cancel")]
